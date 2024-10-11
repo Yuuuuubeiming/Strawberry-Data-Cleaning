@@ -1,0 +1,221 @@
+---
+title: "StrawberryDataCleaning"
+output: pdf_document
+---
+1 .Reading data and ditch the counties.
+```{r}
+library(dplyr)
+library(kableExtra)
+library(tidyverse)
+
+strawberry <- read.csv("strawberries25_v3.csv")
+head(strawberry)
+colnames(strawberry)
+strawberry <- strawberry |> 
+  filter(`Geo.Level`== "NATIONAL" | `Geo.Level`== "STATE")
+
+```
+2. Here we will drop the column with most single value, since the columns are either all missing data, or cannnot be analyzed correctly.
+```{r}
+drop_one_value_col <- function(df){ 
+  df_id <- ensym(df)
+  msg = paste("Looking for single value columns in data frame: ", as.character(df_id))
+  print(msg)
+  drop <- NULL
+  val <- NULL
+
+  for(i in 1:ncol(df)){   
+    if(length(unique(df[[i]])) == 1){
+      drop <- c(drop, i)
+      val <- c(val, df[1, i])
+    }
+  }
+
+  if(is.null(drop)){
+    print("No columns dropped")
+    return(df)
+  } else {
+    print("Columns dropped:")
+    print(unlist(val))
+    df <- df[, -drop, drop = FALSE]
+    return(df)
+  }
+}
+
+strawberry <- strawberry |> drop_one_value_col()
+
+head(strawberry)
+```
+
+3.We will separate the data into census and survey, since I find the we can separate  different ways may cause some overall effect on the variable of data.item and domain-categroy.
+
+```{r}
+straw_cen <- strawberry |> filter(Program=="CENSUS")
+straw_sur <- strawberry |> filter(Program=="SURVEY")
+
+head(straw_cen)
+head(straw_sur)
+
+unique_values1 <- unique(straw_sur$Data.Item)
+unique_values2 <- unique(straw_cen$Data.Item)
+print(unique_values1)
+```
+`
+4.In this step, I want to separate two interaction columns which are the domain's category which contains both domain and its category. 
+```{r}
+straw_cen_cleaned <- straw_cen %>%
+  separate(`Data.Item`, into = c("Commodity_Type", "Operation_Measure"), sep = " - ", extra = "merge", fill = "right") %>%
+  separate(Commodity_Type, into = c("Commodity", "Type"), sep = ", ", extra = "merge", fill = "right") %>%
+  mutate(
+    Commodity = str_trim(Commodity),
+    Type = ifelse(is.na(Type), "OTHER", str_trim(Type)), 
+    Operation_Measure = str_trim(Operation_Measure)
+  )%>%
+  dplyr::select(-Commodity)
+
+head(straw_cen_cleaned)
+
+unique_values3 <- unique(straw_cen_cleaned$Type)
+unique_values4 <- unique(straw_cen_cleaned$Operation_Measure)
+print(unique_values3)
+print(unique_values4)
+```
+5. In this step we will focus on the survey data set. Since it is more complex, we will separate them in more columns.
+```{r}
+straw_sur_cleaned <- straw_sur %>%
+  separate(`Data.Item`, into = c("Commodity_Market", "Details"), sep = " - ", extra = "merge", fill = "right") %>%
+  separate(Commodity_Market, into = c("Commodity", "Market_Type"), sep = ", ", extra = "merge", fill = "right") %>%
+  separate(Details, into = c("Measure_Operation", "Unit_of_Measure"), sep = ", MEASURED IN ", extra = "merge", fill = "right") %>%
+  mutate(
+    Commodity = str_trim(Commodity),
+    Market_Type = ifelse(is.na(Market_Type), "OTHER", str_trim(Market_Type)),
+    Measure_Operation = str_trim(Measure_Operation),
+    Unit_of_Measure = str_trim(Unit_of_Measure)
+  )%>%
+  dplyr::select(-Commodity)
+
+head(straw_sur_cleaned)
+
+unique_values5 <- unique(straw_sur_cleaned$Market_Type)
+unique_values6 <- unique(straw_sur_cleaned$Measure_Operation)
+print(unique_values5)
+print(unique_values6)
+```
+6: In this step I want to o the same thing on Domain.Category that separates it into two columns. I found in the survey graph, the this column has two cases, the not specified annd chemical details as mentioned in the assignment instructions.
+```{r}
+straw_sur_cleaned1 <- straw_sur_cleaned %>%
+  separate(`Domain.Category`, into = c("Chemical_Use", "Chemical_Details"), sep = ": ", extra = "merge", fill = "right") %>%
+  mutate(
+    Chemical_Use = str_trim(str_replace(Chemical_Use, "CHEMICAL, ", "")),
+    Chemical_Details = ifelse(Chemical_Use == "NOT SPECIFIED", "NOT SPECIFIED", Chemical_Details)
+  ) %>%
+  separate(Chemical_Details, into = c("Chemical_Name", "Chemical_Code"), sep = " = ", extra = "merge", fill = "right") %>%
+  mutate(
+    Chemical_Name = str_trim(str_replace_all(Chemical_Name, "[()]", "")), 
+    Chemical_Code = str_trim(str_replace(Chemical_Code, "[)]$", ""))
+  )
+straw_sur_cleaned1 <- straw_sur_cleaned1 %>%
+  mutate(
+    Chemical_Code = as.numeric(Chemical_Code)
+  )
+
+head(straw_sur_cleaned1)
+```
+7. Then we will focus on the census data just like last step.
+```{r}
+unique_values8 <- unique(straw_cen_cleaned$Domain.Category)
+print(unique_values8)
+straw_cen_cleaned1 <- straw_cen_cleaned %>%
+  separate(`Domain.Category`, into = c("Category_Type", "Details"), sep = ": ", extra = "merge", fill = "right") %>%
+  mutate(
+    Category_Type = str_trim(Category_Type),
+    Details = ifelse(Category_Type == "NOT SPECIFIED", "NOT SPECIFIED", str_trim(str_replace_all(Details, "[()]", ""))) # Remove parentheses
+  )
+
+head(straw_cen_cleaned1)
+```
+
+8: In this step we will use deal with the N.A data in both data set
+First: we change the NAs in State.ANSI to -1, since when we want all the variables to be numeric, which is eaiser when comparision.
+```{r}
+straw_sur_cleaned1 <- straw_sur_cleaned1 %>%
+  mutate(
+    `State.ANSI` = ifelse(is.na(`State.ANSI`), -1, `State.ANSI`)
+  )
+straw_cen_cleaned1 <- straw_cen_cleaned1 %>%
+  mutate(
+    `State.ANSI` = ifelse(is.na(`State.ANSI`), -1, `State.ANSI`)
+  )
+head(straw_sur_cleaned1)
+head(straw_cen_cleaned1)
+```
+9:The second step for this is that I want to fill the missing data in the value. I will create a linear regression with Year, Category_Type, Details, State.ANSI of the census data.
+```{r}
+straw_cen_cleaned1 <- straw_cen_cleaned1 %>%
+  mutate(Value = as.numeric(Value)) %>%
+  drop_na(Value, Year, Category_Type, Details, State.ANSI)
+
+straw_cen_cleaned1 <- straw_cen_cleaned1 %>%
+  mutate(
+    Category_Type = as.factor(Category_Type),
+    Details = as.factor(Details)
+  )
+
+modelcen <- lm(Value ~ Year + Category_Type + Details + State.ANSI, data = straw_cen_cleaned1)
+
+summary(modelcen)
+
+numeric_data <- straw_cen_cleaned1 %>%
+  filter(!is.na(Value) & grepl("^[0-9.]+$", Value)) %>%
+  mutate(Value = as.numeric(Value))
+
+non_numeric_data <- straw_cen_cleaned1 %>%
+  filter(is.na(Value) | !grepl("^[0-9.]+$", Value))
+
+predicted_values <- predict(modelcen, newdata = non_numeric_data)
+
+non_numeric_data <- non_numeric_data %>%
+  mutate(Value = predicted_values)
+
+straw_cen_cleaned2 <- bind_rows(numeric_data, non_numeric_data)
+head(straw_cen_cleaned2)
+
+```
+10. We will do the same thing to survey data. We found a really nice model with a R^2 over 0.58. Contrasting to the model for census data, it is more than 10 times better .
+```{r}
+straw_sur_cleaned1 <- straw_sur_cleaned1 %>%
+  mutate(Value = as.numeric(Value)) %>%
+  drop_na(Value, Year, Market_Type, Unit_of_Measure, State.ANSI)
+
+
+straw_sur_cleaned1 <- straw_sur_cleaned1 %>%
+  mutate(
+    Market_Type = as.factor(Market_Type),
+    Unit_of_Measure = as.factor(Unit_of_Measure)
+  )
+
+modelsur <- lm(Value ~ Year + Unit_of_Measure + Market_Type + State.ANSI, data = straw_sur_cleaned1)
+summary(modelsur)
+
+numeric_data <- straw_sur_cleaned1 %>%
+  filter(!is.na(Value) & grepl("^[0-9.]+$", Value)) %>%
+  mutate(Value = as.numeric(Value))
+
+non_numeric_data <- straw_sur_cleaned1 %>%
+  filter(is.na(Value) | !grepl("^[0-9.]+$", Value))
+
+predicted_values <- predict(modelsur, newdata = non_numeric_data)
+
+non_numeric_data <- non_numeric_data %>%
+  mutate(Value = predicted_values)
+
+straw_sur_cleaned2 <- bind_rows(numeric_data, non_numeric_data)
+head(straw_sur_cleaned2)
+```
+10.We will output those two dataset.
+```{r}
+write.csv(straw_sur_cleaned2, "straw_sur_cleaned2.csv", row.names = FALSE)
+write.csv(straw_cen_cleaned2, "straw_cen_cleaned2.csv", row.names = FALSE)
+```
+
+ 
