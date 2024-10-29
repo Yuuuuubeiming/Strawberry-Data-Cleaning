@@ -1,0 +1,113 @@
+---
+title: "Strawberry Data EDA"
+author: "Beiming Yu"
+date: "10/28/2022"
+output: pdf_document
+---
+
+1. Reading the census data and survery dara last week, and we will espeically focus on the data in California state
+```{r}
+datacen <- read.csv("straw_cen_cleaned2.csv")
+datasur <- read.csv("straw_sur_cleaned2.csv")
+str(datasur)
+```
+And we will find that based on the separation only, the survey data will contain the chemicals.
+
+2. We want to focus ont the chemical used in California, and we will remove the variables with Not specified and Total. And we want to lahtest data which means we will not use data older than 5 years.
+```{r}
+unique1<- unique(datasur$Chemical_Name)
+unique2<- unique(datasur$Chemical_Code)
+ca_chemical <- subset(datasur, State != "California")
+ca_chemical1 <- subset(ca_chemical, !(Chemical_Name %in% c("NOT SPECIFIED", "TOTAL")))
+head(ca_chemical1)
+ca_chemical2 <- ca_chemical1[ca_chemical1$Year %in% 2018:2023, ]
+```
+3. Then, based on the reading, we know there are four uses for the chemical including insecticide, fungicide, herbicide and others. We can make a graph to show the total amount of usage in each category for every year. The change of the amount of usage might reflect the change of climate or species in that year in california.
+To get that data, we will add the value of each chemical based on the Chemical use, and separate them in 5 years.
+```{r}
+library(tidyverse)
+ca_chemical3 <- aggregate(Value ~ Chemical_Use + Year, data = ca_chemical2, FUN = sum, na.rm = TRUE)
+ggplot(ca_chemical3, aes(x = Chemical_Use, y = Value, fill = as.factor(Year))) +
+    geom_bar(stat = "identity", position = "dodge") +
+    labs(title = "Usage of Chemicals (CA, 2018-2023)",
+         x = "Chemical Use",
+         y = "Value",
+         fill = "Year") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+#Based on the bar plot we have, we can see some unusual years like 2019, which has a significant increase in the usage like fungicides and insecticides. Base on this result, we may expect there was an unusual change in climate which will cause brust of insects and fungi.
+```
+4. For each category, we cant to identify which is the most popular chemical to use and the trend of usage among each year.
+```{r}
+ca_chemical_agg <- aggregate(Value ~ Chemical_Name + Year, data = ca_chemical2, FUN = sum)
+
+tenchemicals <- function(year) {
+  subset(ca_chemical_agg, Year == year) %>%
+    arrange(desc(Value)) %>%
+    head(10)
+}
+
+top_10_2023 <- tenchemicals(2023)
+top_10_2021 <- tenchemicals(2021)
+
+print(top_10_2023)
+print(top_10_2021)
+
+top_10_all <- rbind(top_10_2023, top_10_2021)
+
+ggplot(top_10_all, aes(x = reorder(Chemical_Name, -Value), y = Value, fill = as.factor(Year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Top 10 Chemicals by Total Usage for 2021, and 2023",
+       x = "Chemical Name",
+       y = "Total Usage (Value)",
+       fill = "Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+#Based on the plot, we can find a interesting fact that the popular chemicals are keeping changing in different years, we only have 3 chemicals that are popular in both years.
+```
+5. Then I came up with a further question, is that causing by the different usage of the chemicals. As we find the in step 3, farmers used more pesticides in 2019, which means the chemicals used in pesticides will be used more. Therefore, we will separate them in 4 categroies.
+```{r}
+ca_chemical2_filtered <- subset(ca_chemical2, Chemical_Use == "INSECTICIDE")
+ca_chemical_agg1 <- aggregate(Value ~ Chemical_Name + Year, data = ca_chemical2_filtered, FUN = sum)
+
+tenchemicals1 <- function(year) {
+  subset(ca_chemical_agg1, Year == year) %>%
+    arrange(desc(Value)) %>%
+    head(10)
+}
+
+top_10_2023_new <- tenchemicals1(2023)
+top_10_2021_new <- tenchemicals1(2021)
+
+print(top_10_2023_new)
+print(top_10_2021_new)
+
+top_10_all_new <- rbind(top_10_2023_new, top_10_2021_new)
+
+ggplot(top_10_all_new, aes(x = reorder(Chemical_Name, -Value), y = Value, fill = as.factor(Year))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Top 10 Chemicals by Total Usage for 2021, and 2023",
+       x = "Chemical Name",
+       y = "Total Usage (Value)",
+       fill = "Year") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+#We can see more same chemical are used, but there are are some new chemicals as well.
+```
+6.Another question we want to explore is that is there any shifts of usage in different chemicals.
+```{r}
+ca_chemical_total <- aggregate(Value ~ Year, data = ca_chemical2, FUN = sum, na.rm = TRUE)
+
+# Plot the total Value for each year using ggplot
+ggplot(ca_chemical_total, aes(x = Year, y = Value)) +
+    geom_line(color = "blue", size = 1) +
+    labs(title = "Total Chemical Usage by Year (CA, 2018-2023)",
+         x = "Year",
+         y = "Total Usage (Value)") +
+    theme_minimal()
+#We can find the the usage of different chemicals are actually become less and less.
+
+```
+
+
